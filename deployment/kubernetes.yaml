@@ -1,0 +1,134 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: translation-app
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+  namespace: translation-app
+data:
+  PORT: "8000"
+  HOST: "0.0.0.0"
+  CORS_ORIGINS: "http://translation-frontend:3000"
+  MODEL_CACHE_DIR: "/app/models"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: translation-backend
+  namespace: translation-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: translation-backend
+  template:
+    metadata:
+      labels:
+        app: translation-backend
+    spec:
+      containers:
+      - name: translation-backend
+        image: <REGISTRY>/translation-backend:latest
+        ports:
+        - containerPort: 8000
+        envFrom:
+        - configMapRef:
+            name: backend-config
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1"
+          limits:
+            memory: "4Gi"
+            cpu: "2"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        volumeMounts:
+        - name: models-cache
+          mountPath: /app/models
+      volumes:
+      - name: models-cache
+        persistentVolumeClaim:
+          claimName: models-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: translation-backend
+  namespace: translation-app
+spec:
+  selector:
+    app: translation-backend
+  ports:
+  - port: 8000
+    targetPort: 8000
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: translation-frontend
+  namespace: translation-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: translation-frontend
+  template:
+    metadata:
+      labels:
+        app: translation-frontend
+    spec:
+      containers:
+      - name: translation-frontend
+        image: <REGISTRY>/translation-frontend:latest
+        ports:
+        - containerPort: 3000
+        env:
+        - name: BACKEND_URL
+          value: "http://translation-backend:8000"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "0.5"
+          limits:
+            memory: "512Mi"
+            cpu: "1"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: translation-frontend
+  namespace: translation-app
+spec:
+  selector:
+    app: translation-frontend
+  ports:
+  - port: 3000
+    targetPort: 3000
+  type: LoadBalancer
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: models-pvc
+  namespace: translation-app
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi

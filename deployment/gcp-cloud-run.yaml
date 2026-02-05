@@ -1,0 +1,62 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: translation-backend
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/minScale: '1'
+        autoscaling.knative.dev/maxScale: '10'
+    spec:
+      containerConcurrency: 10
+      timeoutSeconds: 300
+      containers:
+      - image: gcr.io/<PROJECT_ID>/translation-backend:latest
+        ports:
+        - containerPort: 8000
+        env:
+        - name: PORT
+          value: '8000'
+        - name: HOST
+          value: '0.0.0.0'
+        - name: CORS_ORIGINS
+          value: 'https://your-frontend-domain.com'
+        - name: MODEL_CACHE_DIR
+          value: '/app/models'
+        resources:
+          limits:
+            memory: '4Gi'
+            cpu: '2'
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 0
+          periodSeconds: 10
+          failureThreshold: 12
+---
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: translation-frontend
+spec:
+  template:
+    spec:
+      containers:
+      - image: gcr.io/<PROJECT_ID>/translation-frontend:latest
+        ports:
+        - containerPort: 3000
+        env:
+        - name: BACKEND_URL
+          value: 'https://translation-backend-<hash>.run.app'
+        resources:
+          limits:
+            memory: '512Mi'
+            cpu: '1'

@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  # Python Backend Service
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: translation-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - HOST=0.0.0.0
+      - CORS_ORIGINS=http://localhost:3000,http://localhost:3001
+      - MODEL_CACHE_DIR=/app/models
+    volumes:
+      # Mount models directory to persist downloaded models
+      - ./backend/models:/app/models
+      # Mount code for development (comment out for production)
+      - ./backend:/app
+    networks:
+      - translation-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Next.js Frontend Service
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: translation-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - BACKEND_URL=http://backend:8000
+      - NODE_ENV=production
+    depends_on:
+      - backend
+    networks:
+      - translation-network
+    restart: unless-stopped
+
+  # Development Frontend (alternative to built frontend)
+  frontend-dev:
+    image: node:20-alpine
+    container_name: translation-frontend-dev
+    working_dir: /app
+    command: sh -c "npm install && npm run dev"
+    ports:
+      - "3001:3000"
+    environment:
+      - BACKEND_URL=http://backend:8000
+      - NODE_ENV=development
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      - backend
+    networks:
+      - translation-network
+    profiles:
+      - dev
+
+networks:
+  translation-network:
+    driver: bridge
+
+volumes:
+  models:
+    driver: local

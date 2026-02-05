@@ -1,0 +1,48 @@
+properties:
+  managedEnvironmentId: /subscriptions/<SUBSCRIPTION_ID>/resourceGroups/<RESOURCE_GROUP>/providers/Microsoft.App/managedEnvironments/<ENVIRONMENT_NAME>
+  configuration:
+    ingress:
+      external: true
+      targetPort: 8000
+      transport: auto
+    secrets:
+      - name: cors-origins
+        value: 'https://your-frontend-domain.com'
+  template:
+    containers:
+      - name: translation-backend
+        image: <REGISTRY>.azurecr.io/translation-backend:latest
+        resources:
+          cpu: 2
+          memory: 4Gi
+        env:
+          - name: PORT
+            value: '8000'
+          - name: HOST
+            value: '0.0.0.0'
+          - name: CORS_ORIGINS
+            secretRef: cors-origins
+          - name: MODEL_CACHE_DIR
+            value: '/app/models'
+        probes:
+          - type: liveness
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          - type: startup
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            failureThreshold: 12
+    scale:
+      minReplicas: 1
+      maxReplicas: 10
+      rules:
+        - name: http-rule
+          http:
+            metadata:
+              concurrentRequests: '10'
