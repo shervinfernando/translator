@@ -104,15 +104,17 @@ class TranslationService:
                 # MarianMT translation
                 inputs = tokenizer(text, return_tensors="pt", padding=True, truncation=True, max_length=512)
                 inputs = {k: v.to(self.device) for k, v in inputs.items()}
+                input_length = int(inputs["input_ids"].shape[1])
+                max_new_tokens = min(256, max(32, input_length * 2))
                 
                 with torch.no_grad():
                     translated = model.generate(
                         **inputs,
-                        max_length=512,
-                        num_beams=4,
+                        max_new_tokens=max_new_tokens,
+                        num_beams=5,
                         early_stopping=True,
                         no_repeat_ngram_size=3,
-                        repetition_penalty=1.1,
+                        repetition_penalty=1.2,
                     )
                 
                 translated_text = tokenizer.decode(translated[0], skip_special_tokens=True)
@@ -124,6 +126,8 @@ class TranslationService:
                 
                 inputs = tokenizer(text, return_tensors="pt", padding=True, truncation=True, max_length=512)
                 inputs = {k: v.to(self.device) for k, v in inputs.items()}
+                input_length = int(inputs["input_ids"].shape[1])
+                max_new_tokens = min(256, max(32, input_length * 2))
                 
                 # Generate translation with target language
                 forced_bos_token_id = tokenizer.convert_tokens_to_ids(self.nllb_lang_codes[target_lang])
@@ -132,11 +136,11 @@ class TranslationService:
                     translated = model.generate(
                         **inputs,
                         forced_bos_token_id=forced_bos_token_id,
-                        max_length=512,
-                        num_beams=4,
+                        max_new_tokens=max_new_tokens,
+                        num_beams=5,
                         early_stopping=True,
                         no_repeat_ngram_size=3,
-                        repetition_penalty=1.1,
+                        repetition_penalty=1.2,
                     )
                 
                 translated_text = tokenizer.decode(translated[0], skip_special_tokens=True)

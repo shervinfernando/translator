@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import LanguageSelector, { Language } from '@/components/LanguageSelector';
 import TranslationBox from '@/components/TranslationBox';
 import SwapButton from '@/components/SwapButton';
@@ -22,6 +22,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [modelUsed, setModelUsed] = useState<string | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const activeRequestId = useRef(0);
 
   // Initialize dark mode
   useEffect(() => {
@@ -38,7 +39,15 @@ export default function Home() {
     document.documentElement.classList.toggle('dark');
   };
 
-  // Translate text with debouncing
+  const splitParagraphs = (text: string) => {
+    const normalized = text.replace(/\r\n/g, '\n').trim();
+    if (!normalized) {
+      return [];
+    }
+    return normalized.split(/\n{2,}/);
+  };
+
+  // Translate text by paragraph and update sequentially
   const translateText = async () => {
     if (!sourceText.trim()) {
       setTranslatedText('');
@@ -46,36 +55,61 @@ export default function Home() {
       return;
     }
 
+    const requestId = ++activeRequestId.current;
+    const paragraphs = splitParagraphs(sourceText);
+
     setIsLoading(true);
     setError(null);
+    setTranslatedText('');
+    setModelUsed(null);
 
     try {
-      const response = await fetch('/api/translate', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          text: sourceText,
-          source_lang: sourceLang,
-          target_lang: targetLang,
-        }),
-      });
+      const translatedParagraphs: string[] = new Array(paragraphs.length).fill('');
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Translation failed');
+      for (let index = 0; index < paragraphs.length; index += 1) {
+        if (activeRequestId.current !== requestId) {
+          return;
+        }
+
+        const paragraph = paragraphs[index];
+        if (!paragraph.trim()) {
+          translatedParagraphs[index] = '';
+          setTranslatedText(translatedParagraphs.slice(0, index + 1).join('\n\n'));
+          continue;
+        }
+
+        const response = await fetch('/api/translate', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            text: paragraph,
+            source_lang: sourceLang,
+            target_lang: targetLang,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Translation failed');
+        }
+
+        const data = await response.json();
+        translatedParagraphs[index] = data.translated_text;
+        setTranslatedText(translatedParagraphs.slice(0, index + 1).join('\n\n'));
+        setModelUsed(data.model_used);
       }
-
-      const data = await response.json();
-      setTranslatedText(data.translated_text);
-      setModelUsed(data.model_used);
     } catch (err: any) {
       console.error('Translation error:', err);
       setError(err.message || 'An error occurred during translation');
-      setTranslatedText('');
+      if (activeRequestId.current === requestId) {
+        setTranslatedText('');
+      }
     } finally {
-      setIsLoading(false);
+      if (activeRequestId.current === requestId) {
+        setIsLoading(false);
+      }
     }
   };
 

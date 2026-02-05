@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from translator import TranslationService
 import os
-from typing import Optional
+from typing import List, Optional
 
 app = FastAPI(
     title="Multi-Language Translation API",
@@ -38,11 +38,25 @@ class TranslationRequest(BaseModel):
     source_lang: str = Field(..., description="Source language code (en, ja, zh, hi, si)")
     target_lang: str = Field(..., description="Target language code (en, ja, zh, hi, si)")
 
+class ParagraphsTranslationRequest(BaseModel):
+    """Request model for paragraph translation"""
+    paragraphs: List[str] = Field(..., description="Paragraphs to translate")
+    source_lang: str = Field(..., description="Source language code (en, ja, zh, hi, si)")
+    target_lang: str = Field(..., description="Target language code (en, ja, zh, hi, si)")
+
 
 class TranslationResponse(BaseModel):
     """Response model for translation"""
     translated_text: str
     model_used: str
+    source_lang: str
+    target_lang: str
+
+
+class ParagraphsTranslationResponse(BaseModel):
+    """Response model for paragraph translation"""
+    translated_paragraphs: List[str]
+    model_used: Optional[str]
     source_lang: str
     target_lang: str
 
@@ -142,15 +156,69 @@ async def translate(request: TranslationRequest):
         )
 
 
+@app.post("/translate/paragraphs", response_model=ParagraphsTranslationResponse)
+async def translate_paragraphs(request: ParagraphsTranslationRequest):
+    """
+    Translate a list of paragraphs from source language to target language
+    """
+    # Validate language codes
+    if request.source_lang not in SUPPORTED_LANGUAGES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported source language: {request.source_lang}. Supported: {SUPPORTED_LANGUAGES}"
+        )
+
+    if request.target_lang not in SUPPORTED_LANGUAGES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported target language: {request.target_lang}. Supported: {SUPPORTED_LANGUAGES}"
+        )
+
+    if not request.paragraphs or not any(paragraph.strip() for paragraph in request.paragraphs):
+        raise HTTPException(status_code=400, detail="Paragraphs cannot be empty")
+
+    translated_paragraphs: List[str] = []
+    model_used: Optional[str] = None
+
+    try:
+        for paragraph in request.paragraphs:
+            if not paragraph or not paragraph.strip():
+                translated_paragraphs.append("")
+                continue
+
+            result = translation_service.translate(
+                text=paragraph,
+                source_lang=request.source_lang,
+                target_lang=request.target_lang
+            )
+            translated_paragraphs.append(result["translated_text"])
+            model_used = result["model_used"]
+
+        return ParagraphsTranslationResponse(
+            translated_paragraphs=translated_paragraphs,
+            model_used=model_used,
+            source_lang=request.source_lang,
+            target_lang=request.target_lang
+        )
+
+    except Exception as e:
+        print(f"Paragraph translation error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Translation failed: {str(e)}"
+        )
+
+
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8000))
     host = os.getenv("HOST", "0.0.0.0")
+    reload_enabled = os.getenv("RELOAD", "false").lower() == "true"
     
     uvicorn.run(
         "main:app",
         host=host,
         port=port,
-        reload=True,
+        reload=reload_enabled,
         log_level="info"
     )
